@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: energy_platform_db
+    environment:
+      POSTGRES_USER: energy_user
+      POSTGRES_PASSWORD: energy_password
+      POSTGRES_DB: energy_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U energy_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - energy_network
+
+  # Energy Platform API
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: energy_platform_app
+    environment:
+      - EXECUTION_MODE=local
+      - PROCESSING_MODE=batch
+      - DATABASE_URL=postgresql://energy_user:energy_password@postgres:5432/energy_platform
+      - STORAGE_PATH=/app/data
+      - LOG_LEVEL=INFO
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - energy_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Optional: PgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: energy_platform_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@energy.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - energy_network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  energy_network:
+    driver: bridge
