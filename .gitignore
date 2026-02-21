@@ -47,7 +47,6 @@ htmlcov/
 
 # Data
 data/
-output/
 *.csv
 !assignment/*.csv  # Keep assignment data
 *.parquet

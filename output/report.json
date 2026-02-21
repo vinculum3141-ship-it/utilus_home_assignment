@@ -1,0 +1,201 @@
+{
+  "metadata": {
+    "generated_at": "2026-02-21T14:37:27.113390+00:00",
+    "input_files": {
+      "customers": "assignment/customers.csv",
+      "subscriptions": "assignment/subscriptions.csv"
+    },
+    "data_quality_warnings": [
+      "Invalid customer at row 20: month must be in 1..12: 2024-13-05, at position 0 - skipping",
+      "Customer 'C027' has missing country - keeping record",
+      "Duplicate customer_id 'C038' at row 40 - skipping",
+      "Invalid end_date for subscription at row 9 - treating as active",
+      "Unknown customer_id 'C019' at row 29 - skipping subscription",
+      "Invalid monthly_price 'thirty' at row 31 - skipping",
+      "Subscription for 'C026' has end_date before start_date - skipping",
+      "Unknown customer_id 'C999' at row 54 - skipping subscription",
+      "Unknown customer_id 'C050' at row 55 - skipping subscription",
+      "Customer 'C004' has overlapping subscriptions: 2024-02-05 to 2024-04-01 overlaps with 2024-03-15 to 2024-05-01",
+      "Customer 'C017' has overlapping subscriptions: 2024-06-18 to 2024-07-15 overlaps with 2024-07-01 to 2024-08-01"
+    ],
+    "summary": {
+      "total_customers": 38,
+      "total_subscriptions": 49,
+      "warning_count": 11
+    }
+  },
+  "monthly_mrr": [
+    {
+      "month": "2024-01",
+      "mrr": 85.0
+    },
+    {
+      "month": "2024-02",
+      "mrr": 185.0
+    },
+    {
+      "month": "2024-03",
+      "mrr": 295.0
+    },
+    {
+      "month": "2024-04",
+      "mrr": 410.0
+    },
+    {
+      "month": "2024-05",
+      "mrr": 370.0
+    },
+    {
+      "month": "2024-06",
+      "mrr": 480.0
+    },
+    {
+      "month": "2024-07",
+      "mrr": 482.0
+    },
+    {
+      "month": "2024-08",
+      "mrr": 502.0
+    },
+    {
+      "month": "2024-09",
+      "mrr": 577.0
+    },
+    {
+      "month": "2024-10",
+      "mrr": 659.0
+    },
+    {
+      "month": "2024-11",
+      "mrr": 776.0
+    },
+    {
+      "month": "2024-12",
+      "mrr": 941.0
+    }
+  ],
+  "monthly_churn": [
+    {
+      "month": "2024-01",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-02",
+      "churned_count": 1
+    },
+    {
+      "month": "2024-03",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-04",
+      "churned_count": 1
+    },
+    {
+      "month": "2024-05",
+      "churned_count": 1
+    },
+    {
+      "month": "2024-06",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-07",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-08",
+      "churned_count": 1
+    },
+    {
+      "month": "2024-09",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-10",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-11",
+      "churned_count": 0
+    },
+    {
+      "month": "2024-12",
+      "churned_count": 0
+    }
+  ],
+  "cohort_retention": [
+    {
+      "cohort_month": "2024-01",
+      "cohort_size": 3,
+      "active_after_3_months": 2,
+      "retention_rate_3m": 0.6667
+    },
+    {
+      "cohort_month": "2024-02",
+      "cohort_size": 2,
+      "active_after_3_months": 1,
+      "retention_rate_3m": 0.5
+    },
+    {
+      "cohort_month": "2024-03",
+      "cohort_size": 3,
+      "active_after_3_months": 2,
+      "retention_rate_3m": 0.6667
+    },
+    {
+      "cohort_month": "2024-04",
+      "cohort_size": 3,
+      "active_after_3_months": 3,
+      "retention_rate_3m": 1.0
+    },
+    {
+      "cohort_month": "2024-05",
+      "cohort_size": 3,
+      "active_after_3_months": 3,
+      "retention_rate_3m": 1.0
+    },
+    {
+      "cohort_month": "2024-06",
+      "cohort_size": 3,
+      "active_after_3_months": 2,
+      "retention_rate_3m": 0.6667
+    },
+    {
+      "cohort_month": "2024-07",
+      "cohort_size": 2,
+      "active_after_3_months": 2,
+      "retention_rate_3m": 1.0
+    },
+    {
+      "cohort_month": "2024-08",
+      "cohort_size": 3,
+      "active_after_3_months": 2,
+      "retention_rate_3m": 0.6667
+    },
+    {
+      "cohort_month": "2024-09",
+      "cohort_size": 3,
+      "active_after_3_months": 2,
+      "retention_rate_3m": 0.6667
+    },
+    {
+      "cohort_month": "2024-10",
+      "cohort_size": 4,
+      "active_after_3_months": 4,
+      "retention_rate_3m": 1.0
+    },
+    {
+      "cohort_month": "2024-11",
+      "cohort_size": 3,
+      "active_after_3_months": 3,
+      "retention_rate_3m": 1.0
+    },
+    {
+      "cohort_month": "2024-12",
+      "cohort_size": 6,
+      "active_after_3_months": 6,
+      "retention_rate_3m": 1.0
+    }
+  ]
+}
