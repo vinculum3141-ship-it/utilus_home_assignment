@@ -1,0 +1,247 @@
+"""
+Data cleaning transformation for subscriptions data (Bronze -> Silver).
+
+This module implements all data quality checks and corrections discovered in
+notebooks/01_subscription_data_inspection.ipynb.
+
+Data Quality Issues Fixed:
+1. Whitespace trimming on all string fields
+2. Typo correction: 'baisc' -> 'basic' in plan field
+3. Text-to-numeric conversion: 'thirty' -> '30' in monthly_price field
+4. Empty/malformed date validation
+5. Non-numeric price validation
+"""
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+class SubscriptionDataCleaner:
+    """Cleans and validates subscription data from bronze to silver layer."""
+
+    def __init__(self, excluded_customer_ids: Optional[set[str]] = None):
+        """
+        Initialize the cleaner.
+        
+        Args:
+            excluded_customer_ids: Set of customer IDs that were removed during
+                                   customer data cleaning and should be filtered out
+        """
+        self.validation_errors: list[str] = []
+        self.excluded_customer_ids = excluded_customer_ids or set()
+
+    def clean(self, bronze_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Clean subscription data with all transformations.
+
+        Args:
+            bronze_df: Raw subscription data from bronze layer
+
+        Returns:
+            Cleaned subscription data ready for silver layer
+
+        Raises:
+            ValueError: If critical data quality issues prevent processing
+        """
+        logger.info(f"Starting data cleaning for {len(bronze_df)} rows")
+        self.validation_errors = []
+
+        df = bronze_df.copy()
+
+        # Filter out subscriptions for excluded customers FIRST
+        if self.excluded_customer_ids:
+            excluded_mask = df['customer_id'].isin(self.excluded_customer_ids)
+            excluded_count = excluded_mask.sum()
+            if excluded_count > 0:
+                excluded_subs = df[excluded_mask]['customer_id'].value_counts()
+                logger.warning(
+                    f"Filtering out {excluded_count} subscriptions for "
+                    f"{len(excluded_subs)} excluded customers: {dict(excluded_subs)}"
+                )
+                df = df[~excluded_mask].copy()
+
+        # Apply all cleaning steps
+        df = self._clean_customer_id(df)
+        df = self._clean_start_date(df)
+        df = self._clean_end_date(df)
+        df = self._clean_plan(df)
+        df = self._clean_monthly_price(df)
+
+        if self.validation_errors:
+            error_msg = "\n".join(self.validation_errors)
+            raise ValueError(f"Data quality validation failed:\n{error_msg}")
+
+        logger.info(f"Data cleaning complete: {len(df)} rows validated")
+        return df
+
+    def _clean_customer_id(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and validate customer_id field."""
+        df['customer_id'] = df['customer_id'].str.strip()
+
+        # Check for empty customer IDs
+        empty_mask = df['customer_id'].replace('', np.nan).str.strip().isna()
+        empty_count = empty_mask.sum()
+
+        if empty_count > 0:
+            self.validation_errors.append(
+                f"Found {empty_count} empty customer_id values. "
+                "Cannot process without valid customer identifiers."
+            )
+            logger.error(f"Empty customer_id found in {empty_count} rows")
+
+        return df
+
+    def _clean_start_date(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and validate start_date field."""
+        df['start_date'] = df['start_date'].str.strip()
+
+        # Check for empty start dates
+        empty_mask = df['start_date'].replace('', np.nan).str.strip().isna()
+        empty_count = empty_mask.sum()
+
+        if empty_count > 0:
+            self.validation_errors.append(
+                f"Found {empty_count} empty start_date values. "
+                "Cannot infer subscription start without this field."
+            )
+            logger.error(f"Empty start_date found in {empty_count} rows")
+
+        # Check for malformed dates
+        temp_dates = pd.to_datetime(df['start_date'], errors='coerce')
+        malformed_mask = temp_dates.isna() & ~empty_mask
+        malformed_count = malformed_mask.sum()
+
+        if malformed_count > 0:
+            malformed_examples = df[malformed_mask]['start_date'].head(5).tolist()
+            self.validation_errors.append(
+                f"Found {malformed_count} malformed start_date values. "
+                f"Examples: {malformed_examples}"
+            )
+            logger.error(f"Malformed start_date found in {malformed_count} rows")
+
+        return df
+
+    def _clean_end_date(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and validate end_date field (empty values allowed for active subscriptions)."""
+        df['end_date'] = df['end_date'].str.strip()
+
+        # Normalize empty strings to NaN (after stripping)
+        df['end_date'] = df['end_date'].replace('', np.nan)
+        genuinely_empty_count = df['end_date'].isna().sum()
+
+        # Check for malformed dates (non-empty but unparseable)
+        temp_dates = pd.to_datetime(df['end_date'], errors='coerce')
+        malformed_mask = temp_dates.isna() & df['end_date'].notna()
+        malformed_count = malformed_mask.sum()
+
+        if malformed_count > 0:
+            malformed_examples = df[malformed_mask]['end_date'].head(5).tolist()
+            logger.warning(
+                f"Found {malformed_count} malformed end_date values "
+                f"(not empty but unparseable). Examples: {malformed_examples}"
+            )
+
+        logger.info(f"end_date: {genuinely_empty_count} empty (active subs), "
+                   f"{malformed_count} malformed")
+
+        return df
+
+    def _clean_plan(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and standardize plan field."""
+        df['plan'] = df['plan'].str.strip()
+
+        # Fix known typo
+        typo_count = (df['plan'] == 'baisc').sum()
+        if typo_count > 0:
+            logger.info(f"Correcting 'baisc' -> 'basic' typo in {typo_count} rows")
+            df['plan'] = df['plan'].replace('baisc', 'basic')
+
+        unique_plans = df['plan'].unique()
+        logger.info(f"Found {len(unique_plans)} unique plans: {unique_plans}")
+
+        return df
+
+    def _clean_monthly_price(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and validate monthly_price field."""
+        df['monthly_price'] = df['monthly_price'].str.strip()
+
+        # Fix known text-to-number issue
+        text_price_count = (df['monthly_price'] == 'thirty').sum()
+        if text_price_count > 0:
+            logger.info(f"Converting 'thirty' -> '30' in {text_price_count} rows")
+            df['monthly_price'] = df['monthly_price'].replace('thirty', '30')
+
+        # Validate all prices are numeric
+        temp_numeric = pd.to_numeric(df['monthly_price'], errors='coerce')
+        non_numeric_mask = temp_numeric.isna()
+        non_numeric_count = non_numeric_mask.sum()
+
+        if non_numeric_count > 0:
+            non_numeric_examples = df[non_numeric_mask]['monthly_price'].head(5).tolist()
+            self.validation_errors.append(
+                f"Found {non_numeric_count} non-numeric monthly_price values. "
+                f"Examples: {non_numeric_examples}"
+            )
+            logger.error(f"Non-numeric monthly_price found in {non_numeric_count} rows")
+
+        return df
+
+
+def clean_subscriptions_bronze_to_silver(
+    bronze_path: Path,
+    silver_path: Path,
+    customers_bronze_path: Optional[Path] = None,
+    excluded_customer_ids: Optional[set[str]] = None
+) -> None:
+    """
+    Main entry point to clean subscription data from bronze to silver layer.
+
+    Args:
+        bronze_path: Path to bronze subscriptions.csv
+        silver_path: Path to output cleaned subscriptions_silver.csv
+        customers_bronze_path: Optional path to customers.csv (not cleaned yet)
+        excluded_customer_ids: Set of customer IDs removed during customer cleaning
+                               that should be filtered out of subscriptions
+
+    Raises:
+        ValueError: If data quality validation fails
+    """
+    logger.info(f"Loading bronze subscription data from {bronze_path}")
+    bronze_df = pd.read_csv(bronze_path)
+    logger.info(f"Loaded {len(bronze_df)} rows from bronze layer")
+
+    cleaner = SubscriptionDataCleaner(excluded_customer_ids=excluded_customer_ids)
+    silver_df = cleaner.clean(bronze_df)
+
+    # Save to silver layer
+    silver_path.parent.mkdir(parents=True, exist_ok=True)
+    silver_df.to_csv(silver_path, index=False)
+    logger.info(f"Saved {len(silver_df)} cleaned rows to {silver_path}")
+
+
+if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # Run the cleaning pipeline
+    from pathlib import Path
+
+    base_path = Path(__file__).parent.parent.parent
+    bronze_subs = base_path / "data" / "bronze" / "subscriptions.csv"
+    bronze_customers = base_path / "data" / "bronze" / "customers.csv"
+    silver_subs = base_path / "data" / "silver" / "subscriptions_silver.csv"
+
+    clean_subscriptions_bronze_to_silver(
+        bronze_path=bronze_subs,
+        silver_path=silver_subs,
+        customers_bronze_path=bronze_customers
+    )
