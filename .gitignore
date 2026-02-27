@@ -45,10 +45,13 @@ htmlcov/
 .env
 .env.*
 
-# Data
-data/
+# Data - keep bronze reference CSVs, ignore everything else
+!data/bronze/*.csv  # Keep bronze reference data for assignment
+data/silver/
+data/gold/
 *.csv
 !assignment/*.csv  # Keep assignment data
+!data/bronze/*.csv  # Keep bronze reference data
 *.parquet
 *.db
 *.sqlite
