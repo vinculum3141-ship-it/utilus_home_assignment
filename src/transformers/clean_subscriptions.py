@@ -72,6 +72,8 @@ class SubscriptionDataCleaner:
         df = self._clean_end_date(df)
         df = self._clean_plan(df)
         df = self._clean_monthly_price(df)
+        df = self._validate_date_ranges(df)
+        self._run_quality_diagnostics(df)
 
         if self.validation_errors:
             error_msg = "\n".join(self.validation_errors)
@@ -191,6 +193,83 @@ class SubscriptionDataCleaner:
             logger.error(f"Non-numeric monthly_price found in {non_numeric_count} rows")
 
         return df
+
+    def _validate_date_ranges(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Validate that end_date is not earlier than start_date when end_date exists."""
+        start_dates = pd.to_datetime(df['start_date'], errors='coerce')
+        end_dates = pd.to_datetime(df['end_date'], errors='coerce')
+
+        invalid_mask = end_dates.notna() & start_dates.notna() & (end_dates < start_dates)
+        invalid_count = invalid_mask.sum()
+
+        if invalid_count > 0:
+            examples = (
+                df.loc[invalid_mask, ['customer_id', 'start_date', 'end_date']]
+                .head(5)
+                .to_dict('records')
+            )
+            self.validation_errors.append(
+                f"Found {invalid_count} subscriptions with end_date before start_date. "
+                f"Examples: {examples}"
+            )
+            logger.error(f"Invalid date ranges found in {invalid_count} rows")
+
+        return df
+
+    def _run_quality_diagnostics(self, df: pd.DataFrame) -> None:
+        """Run non-blocking quality diagnostics (warnings only)."""
+        prices = pd.to_numeric(df['monthly_price'], errors='coerce')
+        valid_prices = prices.dropna()
+
+        # Outlier diagnostics (IQR-based, warning only)
+        if len(valid_prices) >= 4:
+            q1 = valid_prices.quantile(0.25)
+            q3 = valid_prices.quantile(0.75)
+            iqr = q3 - q1
+            if iqr > 0:
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+                outlier_mask = (prices < lower_bound) | (prices > upper_bound)
+                outlier_count = outlier_mask.sum()
+
+                if outlier_count > 0:
+                    outlier_examples = (
+                        df.loc[outlier_mask, ['customer_id', 'plan', 'monthly_price']]
+                        .head(5)
+                        .to_dict('records')
+                    )
+                    logger.warning(
+                        "Price outlier diagnostic: found %s potential outliers "
+                        "outside IQR bounds [%.2f, %.2f]. Examples: %s",
+                        outlier_count,
+                        lower_bound,
+                        upper_bound,
+                        outlier_examples,
+                    )
+
+        # Intra-plan price spread diagnostics (warning only)
+        diagnostic_df = df[['plan']].copy()
+        diagnostic_df['monthly_price_numeric'] = prices
+        diagnostic_df = diagnostic_df.dropna(subset=['plan', 'monthly_price_numeric'])
+
+        if not diagnostic_df.empty:
+            for plan, group in diagnostic_df.groupby('plan'):
+                if len(group) < 2:
+                    continue
+
+                unique_price_count = group['monthly_price_numeric'].nunique()
+                min_price = group['monthly_price_numeric'].min()
+                max_price = group['monthly_price_numeric'].max()
+
+                if unique_price_count > 1:
+                    logger.warning(
+                        "Plan pricing diagnostic: plan '%s' has %s distinct prices "
+                        "(min=%.2f, max=%.2f)",
+                        plan,
+                        unique_price_count,
+                        min_price,
+                        max_price,
+                    )
 
 
 def clean_subscriptions_bronze_to_silver(

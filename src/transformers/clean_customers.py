@@ -154,7 +154,7 @@ class CustomerDataCleaner:
     def _clean_country(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean country field (optional)."""
         if 'country' in df.columns:
-            df['country'] = df['country'].str.strip()
+            df['country'] = df['country'].str.strip().str.upper()
             
             # Log missing countries but don't fail
             missing_country = df['country'].isnull() | (df['country'] == '')

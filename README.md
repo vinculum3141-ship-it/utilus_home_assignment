@@ -81,6 +81,30 @@ The tool automatically:
    - Calculates MRR, churn, retention
    - Generates JSON report with prominent data quality warnings
 
+## Business Rules (Canonical)
+
+The following rules are the canonical definitions used by implementation and tests:
+
+1. **MRR month inclusion**
+  - A subscription contributes full `monthly_price` for any calendar month where it is active at least one day.
+  - No proration is applied.
+
+2. **End date treatment**
+  - `end_date` is treated as **inclusive** for activity checks.
+
+3. **Churn threshold**
+  - Churn occurs when a subscription has an `end_date` and no new subscription starts within 30 days.
+  - Boundary rule: `gap_days <= 30` is **not churn**; `gap_days > 30` is **churn**.
+
+4. **3-month retention anchor**
+  - “3 months after signup” is computed as a **calendar month offset** (`signup_date + DateOffset(months=3)`), not fixed 90 days.
+
+5. **Validation severity**
+  - Computation-critical fields fail fast on invalid input.
+  - Monitoring fields (e.g., `country`) generate warnings but do not block metric computation.
+
+See [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md) for full rule rationale and validation behavior.
+
 ## Output Format
 
 The tool generates a JSON report with:

@@ -144,6 +144,19 @@ class TestSubscriptionDataCleaner:
         with pytest.raises(ValueError, match="non-numeric monthly_price"):
             cleaner.clean(df)
 
+    def test_end_date_before_start_date_fails(self, cleaner):
+        """Test that end_date earlier than start_date causes validation error."""
+        df = pd.DataFrame({
+            'customer_id': ['C001', 'C002'],
+            'start_date': ['2023-03-01', '2023-02-01'],
+            'end_date': ['2023-01-01', ''],
+            'plan': ['basic', 'premium'],
+            'monthly_price': ['10', '30']
+        })
+
+        with pytest.raises(ValueError, match="end_date before start_date"):
+            cleaner.clean(df)
+
     def test_all_known_issues_together(self, cleaner):
         """Test fixing all known data quality issues in one dataset."""
         df = pd.DataFrame({

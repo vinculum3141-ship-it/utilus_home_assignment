@@ -100,11 +100,11 @@ class TestCustomerDataCleaner:
         assert 'C003' in cleaner.removed_customer_ids
 
     def test_clean_country_strips_whitespace(self):
-        """Test that country whitespace is stripped."""
+        """Test that country whitespace is stripped and values are uppercased."""
         df = pd.DataFrame({
             'customer_id': ['C001', 'C002', 'C003'],
             'signup_date': ['2024-01-01', '2024-01-02', '2024-01-03'],
-            'country': [' US ', 'UK  ', '  CA']
+            'country': [' us ', 'Uk  ', '  cA']
         })
         cleaner = CustomerDataCleaner()
         result = cleaner._clean_country(df)

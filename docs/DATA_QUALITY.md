@@ -4,6 +4,28 @@
 
 During inspection of the raw input data (`customers.csv` and `subscriptions.csv`), several data quality issues were discovered that would lead to incorrect metric calculations. This document catalogs these issues and the solutions implemented.
 
+## Canonical Business Rules
+
+These rules are the single source of truth for metric behavior and are enforced by implementation and tests.
+
+1. **MRR month inclusion**
+  - If a subscription is active at any point in a calendar month, full `monthly_price` is counted for that month.
+  - No proration is applied.
+
+2. **`end_date` inclusivity**
+  - `end_date` is treated as inclusive when evaluating whether a subscription is active.
+
+3. **Churn definition and boundary**
+  - Churn occurs when a subscription has an `end_date` and no new subscription starts within 30 days.
+  - Boundary behavior: `gap_days <= 30` is not churn; `gap_days > 30` is churn.
+
+4. **3-month retention anchor**
+  - “3 months after signup” is computed as calendar month offset (`signup_date + DateOffset(months=3)`), not fixed 90 days.
+
+5. **Validation severity model**
+  - Computation-critical and business-logic-critical fields fail fast on invalid values.
+  - Integrity-monitoring fields (for example `country`) are warning-level and non-blocking.
+
 ## Customer Data Issues
 
 ### 1. Malformed Signup Dates
@@ -127,6 +149,21 @@ We implemented a **medallion architecture** with three data layers:
 **Metrics Tests**: `tests/test_metrics.py` (10 tests)
 
 **Total**: 68 passing tests
+
+### Rule-to-Test Mapping
+
+- **MRR month inclusion / activity-window semantics**
+  - `tests/test_metrics.py`
+- **Churn 30-day boundary (including exactly 30 days)**
+  - `tests/test_metrics.py`
+- **3-month retention calendar-offset behavior**
+  - `tests/test_metrics.py`
+- **Validation severity and dirty-data handling**
+  - `tests/test_loader.py`
+- **Customer cleaning rules (duplicates, malformed signup dates)**
+  - `tests/test_clean_customers.py`
+- **Subscription cleaning rules (typos, text prices, date parsing, excluded customers)**
+  - `tests/test_clean_subscriptions.py`
 
 ### Pipeline Integration
 `main.py`
