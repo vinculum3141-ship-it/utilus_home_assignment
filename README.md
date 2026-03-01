@@ -66,15 +66,20 @@ The tool automatically:
      - Removes duplicate customer records (keeps first occurrence)
      - Removes customers with malformed dates (e.g., '2024-13-05')
      - Validates signup dates
+     - Normalizes country names to uppercase
      - Logs missing country warnings
    - **Subscription Cleaning**:
      - Trims whitespace from all fields
      - Corrects known typos ('baisc' → 'basic')
      - Converts text to numbers ('thirty' → '30')
-     - Filters out subscriptions for removed customers
+     - **Validates date ranges** (end_date >= start_date)
+     - **Validates start-after-signup** (subscription.start_date >= customer.signup_date)
+     - **Filters unknown customers** (referential integrity from silver layer)
+     - **Detects overlapping subscriptions** (configurable warn/strict policy)
+     - **Identifies price outliers** (IQR-based diagnostics)
      - Validates dates and numeric fields
    - **Quality Gates**: Fails on critical issues, warns on minor ones
-   - **Coordination**: Customers cleaned first, removed IDs propagated to subscriptions
+   - **Coordination**: Customers cleaned first, removed IDs and signup dates propagated to subscriptions
 
 2. **Metrics Calculation** (Silver → Gold):
    - Loads validated data
@@ -140,12 +145,27 @@ Example output structure:
 
 ## Data Quality
 
-The tool validates inputs and logs data quality issues such as:
-- Duplicate customer IDs
-- Unknown customer references in subscriptions
-- Invalid dates or prices
-- Overlapping subscriptions
-- Missing required fields
+The tool performs comprehensive validation and logs data quality issues:
+
+**Validated positive findings:**
+- ✅ No negative prices
+- ✅ All IDs populated
+
+**Critical issues (block processing):**
+- ❌ Invalid date ranges (end_date < start_date)
+- ❌ Subscriptions starting before customer signup
+- ❌ Malformed dates
+- ❌ Orphaned subscriptions (referential integrity)
+
+**Auto-corrected issues:**
+- ⚠️ Typos, text-in-numeric-fields, duplicates, whitespace
+
+**Monitored issues (non-blocking):**
+- ⚠️ Overlapping subscriptions (configurable policy)
+- ⚠️ Missing country data
+- ⚠️ Price outliers
+
+See [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md) for complete findings summary with 12 documented issues.
 
 Data quality warnings are included in the output JSON.
 
@@ -174,7 +194,7 @@ pytest --cov=. --cov-report=html
 │   └── gold/                # Future: aggregated views
 ├── src/
 │   └── transformers/        # Data cleaning pipeline
-├── tests/                   # Test suite (68 tests)
+├── tests/                   # Test suite (72 tests)
 ├── notebooks/               # Data exploration
 ├── docs/                    # Documentation
 │   ├── DESIGN.md
