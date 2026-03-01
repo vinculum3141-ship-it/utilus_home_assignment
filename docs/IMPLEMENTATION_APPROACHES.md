@@ -18,6 +18,58 @@ Both are valid depending on context. Understanding when to use each is key.
 - **Prove it works**: Tests with bad data showing your validation catches issues
 - **Clear over clever**: Simple error messages, obvious code structure
 
+### Reality Check: Data Quality vs. Time Box
+
+In this assignment dataset, multiple independent quality issues exist (duplicates, malformed dates,
+text in numeric fields, unknown customer references, overlaps, etc.). In a strict 2-hour window,
+it is normal that teams will implement different subsets of remediation. Therefore:
+
+- **Metric outputs may vary across valid submissions** based on assumptions and cleanup depth.
+- This is **not necessarily incorrect** if assumptions are explicit and consistently applied.
+- Evaluators should score for **correctness under stated assumptions**, not exact numeric parity alone.
+
+### 2-Hour Priority Model (What to Implement First)
+
+When time is constrained, implement in this order:
+
+1. **Tier 1 – Must Have (Blockers)**
+    - Required-column checks
+    - Parseable critical dates (`signup_date`, `start_date`)
+    - Numeric `monthly_price`
+    - Referential integrity gate (unknown `customer_id` handling)
+    - Clear failure/warning behavior (no silent corruption)
+
+2. **Tier 2 – Should Have (High Impact, Fast Wins)**
+    - Known deterministic fixes (e.g., `'thirty' -> '30'`, `'baisc' -> 'basic'`)
+    - Duplicate customer handling rule (e.g., keep first)
+    - Date-range invariant (`end_date >= start_date` when present)
+
+3. **Tier 3 – Nice to Have (Advanced/Exploratory)**
+    - Overlap resolution policy beyond warning
+    - Outlier diagnostics
+    - Additional monitoring dimensions and deep anomaly analysis
+
+### Required Assumption Disclosure (2-Hour)
+
+A 2-hour submission should include a short “assumptions” section in README or design notes with:
+
+- Whether `end_date` is inclusive
+- Churn threshold boundary (`<= 30` vs `> 30`)
+- Retention anchor (`+3 calendar months` vs `90 days`)
+- Whether partial months are prorated for MRR
+- Which anomalies are corrected vs warned vs rejected
+
+### Definition of “Good” in 2 Hours
+
+A strong 2-hour submission is one that:
+
+- Produces deterministic outputs
+- Fails safely on critical violations
+- Includes targeted tests for dirty inputs
+- Documents assumptions and known limitations
+
+It is **not required** to build a full medallion pipeline in 2 hours.
+
 ### Implementation Pattern
 
 ```python

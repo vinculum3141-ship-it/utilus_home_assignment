@@ -25,16 +25,33 @@ logger = logging.getLogger(__name__)
 class SubscriptionDataCleaner:
     """Cleans and validates subscription data from bronze to silver layer."""
 
-    def __init__(self, excluded_customer_ids: Optional[set[str]] = None):
+    def __init__(
+        self,
+        excluded_customer_ids: Optional[set[str]] = None,
+        valid_customer_ids: Optional[set[str]] = None,
+        customer_signup_dates: Optional[dict[str, pd.Timestamp]] = None,
+        overlap_policy: str = "warn",
+    ):
         """
         Initialize the cleaner.
         
         Args:
             excluded_customer_ids: Set of customer IDs that were removed during
                                    customer data cleaning and should be filtered out
+            valid_customer_ids: Set of known valid customer IDs. If provided,
+                                subscriptions for unknown customers are filtered out.
+            customer_signup_dates: Mapping of customer_id -> signup_date used to
+                                   validate subscription start_date is on/after signup.
+            overlap_policy: How to handle overlapping subscriptions for same customer:
+                            "warn" (default) or "strict".
         """
         self.validation_errors: list[str] = []
         self.excluded_customer_ids = excluded_customer_ids or set()
+        self.valid_customer_ids = valid_customer_ids
+        self.customer_signup_dates = customer_signup_dates or {}
+        if overlap_policy not in {"warn", "strict"}:
+            raise ValueError("overlap_policy must be either 'warn' or 'strict'")
+        self.overlap_policy = overlap_policy
 
     def clean(self, bronze_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -68,11 +85,14 @@ class SubscriptionDataCleaner:
 
         # Apply all cleaning steps
         df = self._clean_customer_id(df)
+        df = self._filter_unknown_customers(df)
         df = self._clean_start_date(df)
         df = self._clean_end_date(df)
         df = self._clean_plan(df)
         df = self._clean_monthly_price(df)
         df = self._validate_date_ranges(df)
+        df = self._validate_start_after_signup(df)
+        self._handle_overlaps(df)
         self._run_quality_diagnostics(df)
 
         if self.validation_errors:
@@ -80,6 +100,26 @@ class SubscriptionDataCleaner:
             raise ValueError(f"Data quality validation failed:\n{error_msg}")
 
         logger.info(f"Data cleaning complete: {len(df)} rows validated")
+        return df
+
+    def _filter_unknown_customers(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter subscriptions with customer IDs not present in customer reference data."""
+        if not self.valid_customer_ids:
+            return df
+
+        unknown_mask = ~df['customer_id'].isin(self.valid_customer_ids)
+        unknown_count = unknown_mask.sum()
+
+        if unknown_count > 0:
+            unknown_examples = df.loc[unknown_mask, 'customer_id'].head(10).tolist()
+            logger.warning(
+                "Filtering out %s subscriptions with unknown customer_id values. "
+                "Examples: %s",
+                unknown_count,
+                unknown_examples,
+            )
+            df = df[~unknown_mask].copy()
+
         return df
 
     def _clean_customer_id(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -216,6 +256,75 @@ class SubscriptionDataCleaner:
 
         return df
 
+    def _validate_start_after_signup(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Validate subscription start_date is on/after customer's signup_date when available."""
+        if not self.customer_signup_dates:
+            return df
+
+        start_dates = pd.to_datetime(df['start_date'], errors='coerce')
+        signup_series = df['customer_id'].map(self.customer_signup_dates)
+        signup_dates = pd.to_datetime(signup_series, errors='coerce')
+
+        invalid_mask = start_dates.notna() & signup_dates.notna() & (start_dates < signup_dates)
+        invalid_count = invalid_mask.sum()
+
+        if invalid_count > 0:
+            examples = (
+                df.loc[invalid_mask, ['customer_id', 'start_date']]
+                .assign(signup_date=signup_dates[invalid_mask].dt.strftime('%Y-%m-%d').values)
+                .head(5)
+                .to_dict('records')
+            )
+            self.validation_errors.append(
+                f"Found {invalid_count} subscriptions with start_date before customer signup_date. "
+                f"Examples: {examples}"
+            )
+            logger.error("Subscriptions starting before signup found in %s rows", invalid_count)
+
+        return df
+
+    def _handle_overlaps(self, df: pd.DataFrame) -> None:
+        """Detect overlapping subscriptions per customer and apply configured policy."""
+        work = df.copy()
+        work['start_dt'] = pd.to_datetime(work['start_date'], errors='coerce')
+        work['end_dt'] = pd.to_datetime(work['end_date'], errors='coerce')
+        work['end_for_overlap'] = work['end_dt'].fillna(pd.Timestamp.max.normalize())
+
+        overlap_examples: list[dict[str, str]] = []
+        overlap_count = 0
+
+        grouped = work.dropna(subset=['start_dt']).sort_values(['customer_id', 'start_dt']).groupby('customer_id')
+        for customer_id, group in grouped:
+            prev_end = None
+            prev_start = None
+            for _, row in group.iterrows():
+                if prev_end is not None and row['start_dt'] <= prev_end:
+                    overlap_count += 1
+                    if len(overlap_examples) < 5:
+                        overlap_examples.append(
+                            {
+                                'customer_id': customer_id,
+                                'previous_start': prev_start.strftime('%Y-%m-%d') if prev_start is not None else '',
+                                'previous_end': prev_end.strftime('%Y-%m-%d') if prev_end != pd.Timestamp.max.normalize() else 'active',
+                                'current_start': row['start_dt'].strftime('%Y-%m-%d'),
+                                'current_end': row['end_dt'].strftime('%Y-%m-%d') if pd.notna(row['end_dt']) else 'active',
+                            }
+                        )
+                if prev_end is None or row['end_for_overlap'] > prev_end:
+                    prev_end = row['end_for_overlap']
+                    prev_start = row['start_dt']
+
+        if overlap_count > 0:
+            msg = (
+                f"Found {overlap_count} overlapping subscription pairs. "
+                f"Examples: {overlap_examples}"
+            )
+            if self.overlap_policy == 'strict':
+                self.validation_errors.append(msg)
+                logger.error("Overlapping subscriptions found and rejected by strict policy")
+            else:
+                logger.warning("%s", msg)
+
     def _run_quality_diagnostics(self, df: pd.DataFrame) -> None:
         """Run non-blocking quality diagnostics (warnings only)."""
         prices = pd.to_numeric(df['monthly_price'], errors='coerce')
@@ -276,7 +385,8 @@ def clean_subscriptions_bronze_to_silver(
     bronze_path: Path,
     silver_path: Path,
     customers_bronze_path: Optional[Path] = None,
-    excluded_customer_ids: Optional[set[str]] = None
+    excluded_customer_ids: Optional[set[str]] = None,
+    overlap_policy: str = "warn",
 ) -> None:
     """
     Main entry point to clean subscription data from bronze to silver layer.
@@ -284,9 +394,10 @@ def clean_subscriptions_bronze_to_silver(
     Args:
         bronze_path: Path to bronze subscriptions.csv
         silver_path: Path to output cleaned subscriptions_silver.csv
-        customers_bronze_path: Optional path to customers.csv (not cleaned yet)
+        customers_bronze_path: Optional path to customer reference CSV
         excluded_customer_ids: Set of customer IDs removed during customer cleaning
                                that should be filtered out of subscriptions
+        overlap_policy: How to handle overlaps: "warn" or "strict"
 
     Raises:
         ValueError: If data quality validation fails
@@ -295,7 +406,34 @@ def clean_subscriptions_bronze_to_silver(
     bronze_df = pd.read_csv(bronze_path)
     logger.info(f"Loaded {len(bronze_df)} rows from bronze layer")
 
-    cleaner = SubscriptionDataCleaner(excluded_customer_ids=excluded_customer_ids)
+    valid_customer_ids: Optional[set[str]] = None
+    customer_signup_dates: Optional[dict[str, pd.Timestamp]] = None
+
+    if customers_bronze_path and customers_bronze_path.exists():
+        customers_df = pd.read_csv(customers_bronze_path)
+        customers_df['customer_id'] = customers_df['customer_id'].astype(str).str.strip()
+        customers_df = customers_df.drop_duplicates(subset=['customer_id'], keep='first')
+
+        # Exclude customers already removed in customer cleaning step
+        if excluded_customer_ids:
+            customers_df = customers_df[~customers_df['customer_id'].isin(excluded_customer_ids)].copy()
+
+        valid_customer_ids = set(customers_df['customer_id'])
+
+        if 'signup_date' in customers_df.columns:
+            parsed_signup = pd.to_datetime(customers_df['signup_date'], errors='coerce')
+            customer_signup_dates = {
+                cid: signup
+                for cid, signup in zip(customers_df['customer_id'], parsed_signup)
+                if pd.notna(signup)
+            }
+
+    cleaner = SubscriptionDataCleaner(
+        excluded_customer_ids=excluded_customer_ids,
+        valid_customer_ids=valid_customer_ids,
+        customer_signup_dates=customer_signup_dates,
+        overlap_policy=overlap_policy,
+    )
     silver_df = cleaner.clean(bronze_df)
 
     # Save to silver layer

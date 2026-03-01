@@ -105,7 +105,7 @@ def main(
             clean_subscriptions_bronze_to_silver(
                 bronze_path=bronze_subs,
                 silver_path=silver_subs,
-                customers_bronze_path=bronze_customers,
+                customers_bronze_path=silver_customers,
                 excluded_customer_ids=removed_customer_ids,
             )
             console.print("[green]✓ Data cleaning complete[/green]")

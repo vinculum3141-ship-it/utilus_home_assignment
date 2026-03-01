@@ -157,6 +157,51 @@ class TestSubscriptionDataCleaner:
         with pytest.raises(ValueError, match="end_date before start_date"):
             cleaner.clean(df)
 
+    def test_unknown_customers_filtered_when_reference_provided(self):
+        """Test that unknown customer subscriptions are filtered during preprocessing."""
+        cleaner = SubscriptionDataCleaner(valid_customer_ids={'C001'})
+        df = pd.DataFrame({
+            'customer_id': ['C001', 'C999'],
+            'start_date': ['2023-01-01', '2023-02-01'],
+            'end_date': ['', ''],
+            'plan': ['basic', 'premium'],
+            'monthly_price': ['10', '30']
+        })
+
+        result = cleaner.clean(df)
+        assert len(result) == 1
+        assert result['customer_id'].tolist() == ['C001']
+
+    def test_start_before_signup_fails_when_signup_reference_provided(self):
+        """Test that subscription start before customer signup fails validation."""
+        cleaner = SubscriptionDataCleaner(
+            customer_signup_dates={'C001': pd.Timestamp('2023-02-01')}
+        )
+        df = pd.DataFrame({
+            'customer_id': ['C001'],
+            'start_date': ['2023-01-01'],
+            'end_date': [''],
+            'plan': ['basic'],
+            'monthly_price': ['10']
+        })
+
+        with pytest.raises(ValueError, match="start_date before customer signup_date"):
+            cleaner.clean(df)
+
+    def test_overlapping_subscriptions_fail_in_strict_policy(self):
+        """Test that overlapping subscriptions fail when overlap policy is strict."""
+        cleaner = SubscriptionDataCleaner(overlap_policy='strict')
+        df = pd.DataFrame({
+            'customer_id': ['C001', 'C001'],
+            'start_date': ['2023-01-01', '2023-01-15'],
+            'end_date': ['2023-02-01', '2023-03-01'],
+            'plan': ['basic', 'premium'],
+            'monthly_price': ['10', '30']
+        })
+
+        with pytest.raises(ValueError, match="overlapping subscription"):
+            cleaner.clean(df)
+
     def test_all_known_issues_together(self, cleaner):
         """Test fixing all known data quality issues in one dataset."""
         df = pd.DataFrame({
