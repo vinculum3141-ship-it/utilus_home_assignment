@@ -340,7 +340,7 @@ def test_mrr_calculation():
 ├── data/
 │   ├── bronze/              # Raw CSVs (immutable)
 │   ├── silver/              # Cleaned CSVs (generated)
-│   └── gold/                # Aggregated views
+│   └── gold/                # [MISSING] Would contain enriched tables
 ├── src/
 │   └── transformers/        # ETL logic
 │       └── clean_subscriptions.py
@@ -357,6 +357,51 @@ def test_mrr_calculation():
 └── notebooks/               # Exploratory analysis
     └── 01_subscription_data_inspection.ipynb
 ```
+
+### Architectural Gap: Missing Gold Layer
+
+**Current Reality**: We go Bronze → Silver → JSON Report
+
+**What's Missing**: The implementation lacks a true gold layer. In proper medallion architecture:
+
+- **Silver**: Clean individual records (customers, subscriptions)
+- **Gold**: **Enriched, joined, business-ready tables** (e.g., `subscription_facts` with denormalized customer data, computed flags like `is_active`, `is_churned`, duration calculations)
+- **Reports**: Aggregations reading FROM gold tables
+
+**Current Flow**:
+```
+Bronze → Silver → metrics.py (does enrichment in-memory) → JSON
+                  ↑ This joining/enrichment should be materialized as gold
+```
+
+**What Gold Would Look Like**:
+```python
+# src/transformers/create_gold_layer.py (NOT IMPLEMENTED)
+
+def create_subscription_enriched(silver_customers_df, silver_subscriptions_df):
+    """
+    Silver → Gold transformation.
+    
+    Creates enriched table joining customers + subscriptions with computed fields:
+    - customer_country, customer_signup_date (denormalized)
+    - is_active (boolean based on end_date)
+    - subscription_duration_days
+    - months_active (count of calendar months)
+    - is_churned (based on 30-day rule)
+    """
+    # Join and enrich...
+    return enriched_df
+```
+
+Then `data/gold/subscription_enriched.csv` would be the single source for all reports.
+
+**Why Not Implemented**:
+- Time-boxed assignment scope (2 hours)
+- Metrics calculation does the enrichment on-the-fly (works, just not materialized)
+- Demonstrates medallion concept even if simplified
+- Production would definitely add this layer
+
+**Impact**: The current architecture is more accurately "Bronze → Silver → Report" rather than true three-layer medallion.
 
 ### What This Enables
 
@@ -378,10 +423,11 @@ def test_mrr_calculation():
 
 ## Key Differences
 
-| Aspect | 2-Hour Assignment | Production Design |
+| Aspect | 2-Hour Assignment | Production Design (Current) |
 |--------|------------------|-------------------|
 | **Validation Location** | In loader (at boundary) | Separate transformer layer |
-| **Data Layers** | None (single CSV) | Bronze/Silver/Gold |
+| **Data Layers** | None (single CSV) | Bronze/Silver (+ JSON report) |
+| **Gold Layer** | N/A | **Missing** (would be enriched tables) |
 | **Cleaning Strategy** | Inline with validation | Separate cleaning module |
 | **Test Focus** | Loader handles bad inputs | Each layer tested separately |
 | **Error Handling** | Fail fast, clear messages | Layered (fail vs. warn) |

@@ -1,5 +1,48 @@
 # Architecture Document: SaaS Analytics Tool
 
+## Data Architecture: Medallion Pattern (Simplified)
+
+**Current Implementation**: Bronze → Silver → Report (JSON)
+
+**Architectural Reality**:
+- **Bronze Layer** (`data/bronze/`): Raw CSV files as received
+- **Silver Layer** (`data/silver/`): Cleaned, validated CSV files (12 data quality issues remediated)
+- **"Gold Layer"**: Currently just the JSON report output (`output/report.json`)
+
+**Honest Assessment**:
+The current implementation lacks a true gold layer. We go from silver (clean individual records) directly to aggregated reports. In a proper medallion architecture:
+
+**What's Missing (True Gold Layer)**:
+- **Enriched datasets**: Joined customer + subscription data with computed fields
+- **Business-ready tables**: e.g., `subscription_facts` with `is_active`, `months_active`, `is_churned` flags
+- **Denormalized structures**: Analytics-optimized tables ready for querying/reporting
+- **Reusable artifacts**: Gold tables that multiple reports/dashboards could consume
+
+**Current Flow**:
+```
+Bronze (raw) → Silver (cleaned) → Metrics Functions → JSON Report
+                                  ↑ (This isn't really "gold")
+```
+
+**Proper Flow Would Be**:
+```
+Bronze (raw) → Silver (cleaned) → Gold (enriched tables) → Reports/Dashboards
+```
+
+**Why This Approach for Assignment**:
+- **Time-boxed scope**: 2-hour assignment doesn't warrant full data warehouse
+- **Good enough**: Metrics calculation does the enrichment/joining on-the-fly
+- **Clear intent**: Shows understanding of medallion concepts even if simplified
+- **Pragmatic**: Don't over-engineer when direct silver→report path works
+
+**Production Recommendation**:
+Add a `src/transformers/create_gold_layer.py` that materializes enriched tables:
+- `customer_subscription_enriched.csv`: Joined data with computed flags
+- `monthly_aggregates.csv`: Pre-computed monthly metrics
+- Then reporting layer reads from gold, not silver
+
+This would make the architecture claim legitimate and enable multiple downstream consumers.
+
 ## Architectural Style: Functional over OOP
 
 **Design Decision**: Use functional programming patterns for data transformations, OOP for data modeling.

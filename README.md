@@ -4,11 +4,13 @@ A CLI tool for calculating SaaS metrics (MRR, churn, cohort retention) from CSV 
 
 ## Architecture
 
-This project uses a **medallion architecture** with three data layers:
+This project uses a **simplified medallion architecture** with three data layers:
 
 - **Bronze** (`data/bronze/`): Raw data as-is from source
 - **Silver** (`data/silver/`): Cleaned and validated data
-- **Gold** (`output/`): Aggregated metrics and analytics
+- **Gold** (`output/`): Aggregated metrics reports (JSON)
+
+**Note**: The current implementation lacks a true gold layer (enriched, joined tables). We go directly from silver (cleaned records) to aggregated reports. In production, you'd add `data/gold/` with enriched datasets like `subscription_facts` or `customer_metrics` that combine and denormalize silver data before reporting. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details on this architectural choice.
 
 See [docs/DATA_QUALITY.md](docs/DATA_QUALITY.md) for details on data issues and cleaning.
 
